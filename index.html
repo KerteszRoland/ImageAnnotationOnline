@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: black;
+      }
+      canvas {
+        background-color: #1a1a1a;
+        margin: 0;
+        padding: 0;
+      }
+      .delete {
+        background-color: red;
+      }
+    </style>
+    <title>LabelOnline</title>
+  </head>
+  <body>
+    <input type="file" name="inputfile" id="inputfile" />
+    <input type="file" id="inputfolder" multiple />
+    <br />
+    <div><canvas id="mainCanvas" width="200" height="100"></canvas></div>
+    <input type="button" value="<" onclick="prevAnno()" />
+    <input type="button" value=">" onclick="nextAnno()" />
+    <br />
+    <div id="label_names"></div>
+  </body>
+
+  <script>
+    const canvas = document.getElementById("mainCanvas");
+    const ctx = canvas.getContext("2d");
+    const label_div = document.getElementById("label_names");
+    document
+      .getElementById("inputfile")
+      .addEventListener("change", fileChanged);
+    document
+      .getElementById("inputfolder")
+      .addEventListener("change", folderChanged);
+
+    let annos = [];
+    let label_classes = [
+      "Orange",
+      "Green",
+      "Red",
+      "Blue",
+      "White",
+      "Yellow",
+      "Cube",
+    ];
+    let current_anno_index = 0;
+    let next_label_id = 0;
+
+    var textFile = null;
+    function makeTextFile(text) {
+      var data = new Blob([text], { type: "text/plain" });
+
+      if (textFile !== null) {
+        window.URL.revokeObjectURL(textFile);
+      }
+      textFile = window.URL.createObjectURL(data);
+      return textFile;
+    }
+
+    function downloadTxt(txt) {
+      var link = document.createElement("a");
+      link.setAttribute("download", "info.txt");
+      link.href = makeTextFile(txt);
+      document.body.appendChild(link);
+
+      window.requestAnimationFrame(function () {
+        var event = new MouseEvent("click");
+        link.dispatchEvent(event);
+        document.body.removeChild(link);
+      });
+    }
+
+    function getCurrentAnno() {
+      return annos[current_anno_index];
+    }
+
+    function prevAnno() {
+      if (current_anno_index == 0) return;
+      getCurrentAnno().hide();
+      current_anno_index--;
+      redraw();
+      getCurrentAnno().show();
+    }
+
+    function nextAnno() {
+      if (current_anno_index == annos.length - 1) return;
+      getCurrentAnno().hide();
+      //downloadTxt(getCurrentAnno().getYOLOannotation());
+
+      current_anno_index++;
+      redraw();
+      getCurrentAnno().show();
+    }
+
+    function folderChanged() {
+      annos = [];
+      current_anno_index = 0;
+      for (let i = 0; i < this.files.length; i++) {
+        let reader = new FileReader();
+        reader.onload = (e) => {
+          annos.push(new AnnoObj(e.target.result));
+          if (i == 0)
+            annos[0].imageObj.onload = function () {
+              redraw();
+            };
+        };
+        reader.readAsDataURL(this.files[i]);
+      }
+    }
+
+    function fileChanged() {
+      var fr = new FileReader();
+      fr.onload = function () {
+        label_classes = fr.result.split("\r\n");
+      };
+      fr.readAsText(this.files[0]);
+    }
+
+    function getLabelClassesAsHTML(selectedId = 0) {
+      let selectionOptions = "";
+      for (let index = 0; index < label_classes.length; index++) {
+        selectionOptions += `<option value=${index}`;
+        if (index == selectedId) selectionOptions += " selected";
+        selectionOptions += `>${label_classes[index]}</option>`;
+      }
+      return selectionOptions;
+    }
+
+    class AnnoObj {
+      labels;
+      imageObj;
+
+      constructor(img) {
+        this.imageObj = new Image();
+        this.imageObj.src = img;
+        this.labels = [];
+      }
+
+      getYOLOannotation() {
+        let annoString = "";
+        this.labels.forEach((element) => {
+          annoString += element.getYOLOannotation() + "\n";
+        });
+        return annoString;
+      }
+
+      show() {
+        this.addSelectionDivs();
+      }
+
+      hide() {
+        this.deleteSelectionDivs();
+      }
+
+      getLabelClicked(pos) {
+        for (let i = 0; i < this.labels.length; i++) {
+            const label = this.labels[i];
+            if(label.isClicked(pos))
+                return label;
+        }
+        return null;
+      }
+
+      getResizingSquareIfPosInIt(pos) {
+        for (let i = 0; i < this.labels.length; i++) {
+          label = this.labels[i];
+          let squarePos = label.getResizingSquareIfPosInIt(pos);
+          if (squarePos.length != 0) return [label, squarePos];
+        }
+        return [];
+      }
+
+      displayImage() {
+        drawImageActualSize(this.imageObj);
+      }
+
+      drawLabels() {
+        if (this.labels.length == 0) return;
+        this.labels.forEach((element) => {
+          element.draw();
+        });
+      }
+
+      deleteSelectionDivs() {
+        if (this.labels.length == 0) return;
+        this.labels.forEach((element) => {
+          element.deleteSelectionDiv();
+        });
+      }
+
+      addSelectionDivs() {
+        if (this.labels.length == 0) return;
+        this.labels.forEach((element) => {
+          element.addSelectionDiv();
+        });
+      }
+    }
+
+    class Label {
+      name;
+      x;
+      y;
+      w;
+      h;
+      id;
+      selectionDiv;
+      annoParent;
+      resizerSquareOffSet = 5;
+      constructor(annoParent, x, y, w, h, name = "0") {
+        this.annoParent = annoParent;
+        this.x = x;
+        this.y = y;
+        this.w = w;
+        this.h = h;
+        this.name = name;
+        this.id = next_label_id;
+        next_label_id++;
+        this.addSelectionDiv();
+      }
+
+      getResizerSquares() {
+        return [
+          [this.x, this.y],
+          [this.x + this.w, this.y],
+          [this.x, this.y + this.h],
+          [this.x + this.w, this.y + this.h],
+        ];
+      }
+
+      drawResizerSquares(color) {
+        this.getResizerSquares().forEach((element) => {
+          ctx.beginPath();
+          ctx.fillStyle = color;
+          ctx.rect(
+            element[0] - this.resizerSquareOffSet,
+            element[1] - this.resizerSquareOffSet,
+            this.resizerSquareOffSet * 2,
+            this.resizerSquareOffSet * 2
+          );
+          ctx.fill();
+        });
+      }
+
+      getResizingSquareIfPosInIt(pos) {
+        for (let i = 0; i < this.getResizerSquares().length; i++) {
+          let element = this.getResizerSquares()[i];
+          if (
+            element[0] - this.resizerSquareOffSet <= pos[0] &&
+            pos[0] <= element[0] + this.resizerSquareOffSet &&
+            element[1] - this.resizerSquareOffSet <= pos[1] &&
+            pos[1] < element[1] + this.resizerSquareOffSet
+          ) {
+            return element;
+          }
+        }
+        return [];
+      }
+
+      cornerDragging(mouse_pos, corner_pos, lastResizerSquares) {
+        if (
+          corner_pos[0] == lastResizerSquares[0][0] &&
+          corner_pos[1] == lastResizerSquares[0][1]
+        ) {
+          this.w = this.w + this.x - mouse_pos[0];
+          this.x = mouse_pos[0];
+          this.h = this.h + this.y - mouse_pos[1];
+          this.y = mouse_pos[1];
+        } else if (
+          corner_pos[0] == lastResizerSquares[1][0] &&
+          corner_pos[1] == lastResizerSquares[1][1]
+        ) {
+          this.w = mouse_pos[0] - this.x;
+          this.h = this.h + this.y - mouse_pos[1];
+          this.y = mouse_pos[1];
+        } else if (
+          corner_pos[0] == lastResizerSquares[2][0] &&
+          corner_pos[1] == lastResizerSquares[2][1]
+        ) {
+          this.h = mouse_pos[1] - this.y;
+          this.w = this.x + this.w - mouse_pos[0];
+          this.x = mouse_pos[0];
+        } else if (
+          corner_pos[0] == lastResizerSquares[3][0] &&
+          corner_pos[1] == lastResizerSquares[3][1]
+        ) {
+          this.w = mouse_pos[0] - this.x;
+          this.h = mouse_pos[1] - this.y;
+        }
+      }
+
+      isClicked(pos) {
+        if (
+          this.x + this.resizerSquareOffSet < pos[0] &&
+          pos[0] < this.x + this.w - this.resizerSquareOffSet &&
+          this.y + this.resizerSquareOffSet < pos[1] &&
+          pos[1] < this.y + this.h - this.resizerSquareOffSet
+        )
+          return true;
+        return false;
+      }
+
+      draw(color = "red", lineWidth = "3") {
+        ctx.beginPath();
+        ctx.lineWidth = lineWidth;
+        ctx.strokeStyle = color;
+        ctx.rect(this.x, this.y, this.w, this.h);
+        ctx.stroke();
+        this.drawResizerSquares("lime");
+      }
+
+      addSelectionDiv() {
+        label_div.insertAdjacentHTML(
+          "beforeend",
+          `<div id="div_${this.id}"><span>${this.id}    </span>
+            <select id="${this.id}">
+                ${getLabelClassesAsHTML(this.name)}
+            </select>
+            <input type="button" class="delete" value="X" id="del_${
+              this.id
+            }" tabindex="-1"><br></div>`
+        );
+        let delete_btn = document.getElementById(`del_${this.id}`);
+        this.selectionDiv = document.getElementById(`div_${this.id}`);
+        let selectionHTML = document.getElementById(this.id);
+        selectionHTML.focus();
+        delete_btn.addEventListener("click", (e) => {
+          getCurrentAnno().labels.splice(
+            getCurrentAnno().labels.indexOf(this),
+            1
+          );
+          this.selectionDiv.remove();
+          redraw();
+        });
+
+        selectionHTML.addEventListener("focus", (e) => {
+          this.draw("pink", "5");
+        });
+        selectionHTML.addEventListener("blur", (e) => {
+          redraw();
+        });
+        selectionHTML.addEventListener("change", (e) => {
+          this.name = e.target.value;
+        });
+      }
+
+      deleteSelectionDiv() {
+        this.selectionDiv.remove();
+      }
+
+      selectionFocus() {
+        return document.getElementById(this.id).focus();
+      }
+
+      getYOLOannotation() {
+        let parentImage = this.annoParent.imageObj;
+        let center_xn = ((this.x + this.w / 2) / parentImage.width) * 5;
+        let center_yn = ((this.y + this.h / 2) / parentImage.height) * 5;
+        let wn = (Math.abs(this.w) / parentImage.width) * 5;
+        let hn = (Math.abs(this.h) / parentImage.height) * 5;
+        return `${this.name} ${center_xn.toFixed(6)} ${center_yn.toFixed(
+          6
+        )} ${wn.toFixed(6)} ${hn.toFixed(6)}`;
+      }
+    }
+
+    let startPos = [];
+    let endPos = [];
+    let isMouseDown = false;
+    let currentPos = [];
+
+    function drawImageActualSize(img) {
+      canvas.width = img.naturalWidth / 5;
+      canvas.height = 4032 / 5;
+      ctx.drawImage(img, 0, 0, img.naturalWidth / 5, img.naturalHeight / 5);
+    }
+
+    function drawRectangle(pos, color) {
+      ctx.beginPath();
+      ctx.lineWidth = "3";
+      ctx.strokeStyle = color;
+      ctx.rect(pos[0], pos[1], pos[2], pos[3]);
+      ctx.stroke();
+    }
+
+    function clearCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function redraw() {
+      clearCanvas();
+      getCurrentAnno().displayImage();
+      getCurrentAnno().drawLabels();
+    }
+    let isResizingLabel = false;
+    let resizingLabelAndCorner;
+    let resizingOldSquares;
+    let isDraggingLabel = false;
+    let draggingOldLabel;
+    let draggingOffset;
+
+    canvas.addEventListener("mousedown", (e) => {
+      isMouseDown = true;
+      startPos = [e.offsetX, e.offsetY];
+    });
+
+    canvas.addEventListener("mousemove", (e) => {
+      x = e.offsetX;
+      y = e.offsetY;
+      if (isMouseDown) {
+        let resizingLabelAndSquarePos =
+          getCurrentAnno().getResizingSquareIfPosInIt(startPos);
+        let draggingLabel = getCurrentAnno().getLabelClicked([x,y]);
+        if (draggingLabel != null && !isDraggingLabel && !isResizingLabel){
+            draggingOldLabel= draggingLabel;
+            draggingOffset = [x-draggingLabel.x, y-draggingLabel.y];
+            isDraggingLabel = true;
+        }
+        else if(isDraggingLabel){
+            draggingOldLabel.x = x-draggingOffset[0];
+            draggingOldLabel.y = y-draggingOffset[1];
+            redraw();
+        }
+        else if (isResizingLabel) {
+          redraw();
+          resizingLabelAndCorner[0].cornerDragging(
+            [x, y],
+            resizingLabelAndCorner[1],
+            resizingOldSquares
+          );
+        } else if (resizingLabelAndSquarePos.length != 0) {
+          isResizingLabel = true;
+          resizingLabelAndCorner = resizingLabelAndSquarePos;
+          resizingOldSquares = resizingLabelAndCorner[0].getResizerSquares();
+        } 
+        else if (currentPos[0] != x || currentPos[1] != y) {
+          redraw();
+          drawRectangle(
+            [startPos[0], startPos[1], x - startPos[0], y - startPos[1]],
+            "blue"
+          );
+        }
+      }
+      currentPos = [x, y];
+    });
+
+    canvas.addEventListener("mouseup", (e) => {
+      isMouseDown = false;
+      x = currentPos[0];
+      y = currentPos[1];
+      endPos = [x, y];
+
+      if (isResizingLabel) {
+        isResizingLabel = false;
+        resizingLabelAndCorner[0].selectionFocus();
+        resizingLabelAndCorner = [];
+        resizingOldSquares = [];
+        return;
+      }
+      if(isDraggingLabel){
+        isDraggingLabel = false;
+        draggingOldLabel = null;
+        draggingOffset = 0;
+        return;
+      }
+      
+      if (startPos[0] == endPos[0] && startPos[1] == endPos[1]) return;
+      label = new Label(
+        getCurrentAnno(),
+        startPos[0],
+        startPos[1],
+        endPos[0] - startPos[0],
+        endPos[1] - startPos[1]
+      );
+      getCurrentAnno().labels.push(label);
+      redraw();
+    });
+
+    canvas.addEventListener("touchstart", function (e) {
+      e.preventDefault();
+      var touch = e.touches[0];
+      var mouseEvent = new MouseEvent("mousedown", {
+        clientX: touch.pageX,
+        clientY: touch.pageY,
+      });
+      canvas.dispatchEvent(mouseEvent);
+    });
+
+    canvas.addEventListener("touchmove", (e) => {
+      e.preventDefault();
+      var touch = e.touches[0];
+      var mouseEvent = new MouseEvent("mousemove", {
+        clientX: touch.pageX,
+        clientY: touch.pageY,
+      });
+      canvas.dispatchEvent(mouseEvent);
+    });
+
+    canvas.addEventListener("touchend", (e) => {
+      e.preventDefault();
+      var mouseEvent = new MouseEvent("mouseup", {});
+      canvas.dispatchEvent(mouseEvent);
+    });
+
+    document.body.addEventListener("touchstart", function (e) {
+      if (e.target == canvas) e.preventDefault();
+    });
+    document.body.addEventListener("touchend", function (e) {
+      if (e.target == canvas) e.preventDefault();
+    });
+    document.body.addEventListener("touchmove", function (e) {
+      if (e.target == canvas) e.preventDefault();
+    });
+  </script>
+</html>
