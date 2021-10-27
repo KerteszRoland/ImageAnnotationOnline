@@ -92,7 +92,11 @@ function folderChanged() {
 function fileChanged() {
   var fr = new FileReader();
   fr.onload = function () {
-    label_classes = fr.result.split("\r\n");
+    let file_content = fr.result.split("\r\n");
+    if (file_content[file_content.length - 1] == "") {
+      file_content = file_content.slice(0, -1);
+    }
+    label_classes = file_content;
   };
   fr.readAsText(this.files[0]);
 }
@@ -192,7 +196,7 @@ class AnnoObj {
 
   displayImage() {
     canvas.width = this.imageObj.naturalWidth / 4.25;
-    canvas.height = 4032 / 4.25;
+    canvas.height = this.imageObj.naturalHeight / 4.25;
     ctx.drawImage(
       this.imageObj,
       0,
@@ -375,7 +379,7 @@ class Label {
     return tempData;
   }
 
-  changePosToTopLeft(){
+  changePosToTopLeft() {
     let topLeftData = this.getTopLeftCornerData(this.x, this.y, this.w, this.h);
     this.x = topLeftData[0];
     this.y = topLeftData[1];
