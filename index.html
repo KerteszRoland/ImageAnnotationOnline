@@ -9,7 +9,8 @@
       body {
         margin: 0;
         padding: 0;
-        background-color: black;
+        background-color: coral;
+        color: white;
       }
       canvas {
         background-color: #1a1a1a;
@@ -19,18 +20,78 @@
       .delete {
         background-color: red;
       }
+      .flex-container-h {
+        display: flex;
+        justify-content: space-between;
+        flex-direction: row;
+      }
+      .flex-container-v {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      #label_names {
+        width: 350px;
+      }
+      .center {
+        margin: auto;
+      }
+      .mt-25 {
+        margin-top: 25px;
+      }
+      .mt-50 {
+        margin-top: 50px;
+      }
+      .btn-control {
+        padding: 20px 100px;
+        margin: 0;
+      }
     </style>
     <title>LabelOnline</title>
   </head>
   <body>
-    <input type="file" name="inputfile" id="inputfile" />
-    <input type="file" id="inputfolder" multiple />
-    <br />
-    <div><canvas id="mainCanvas" width="200" height="100"></canvas></div>
-    <input type="button" value="<" onclick="prevAnno()" />
-    <input type="button" value=">" onclick="nextAnno()" />
-    <br />
-    <div id="label_names"></div>
+    <div class="flex-container-h mt-25">
+      <div class="flex-item">
+        <div id="label_names"></div>
+      </div>
+      <div class="flex-item">
+        <div class="flex-container-v">
+          <div class="flex-item center">
+            <input
+              type="button"
+              value="<"
+              onclick="prevAnno()"
+              class="btn-control"
+            />
+            <input
+              type="button"
+              value=">"
+              onclick="nextAnno()"
+              class="btn-control"
+            />
+          </div>
+          <div class="flex-item mt-25">
+            <canvas id="mainCanvas" width="800" height="800"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="flex-item">
+        <div class="flex-container-v">
+          <div class="flex-item">
+            <label for="inputfile">Classes</label>
+            <input type="file" id="inputfile" />
+          </div>
+          <div class="flex-item">
+            <label for="inputfolder">Images</label>
+            <input type="file" id="inputfolder" multiple />
+          </div>
+          <div class="flex-item">
+            <input type="button" value="Export" onclick="exportAnnotations()" />
+          </div>
+        </div>
+      </div>
+    </div>
   </body>
 
   <script>
@@ -60,7 +121,6 @@
     var textFile = null;
     function makeTextFile(text) {
       var data = new Blob([text], { type: "text/plain" });
-
       if (textFile !== null) {
         window.URL.revokeObjectURL(textFile);
       }
@@ -68,10 +128,13 @@
       return textFile;
     }
 
-    function downloadTxt(txt) {
+    function downloadTxt(anno) {
       var link = document.createElement("a");
-      link.setAttribute("download", "info.txt");
-      link.href = makeTextFile(txt);
+      link.setAttribute(
+        "download",
+        `${anno.imageName.split(".").slice(0, -1)}.txt`
+      );
+      link.href = makeTextFile(anno.getYOLOannotation());
       document.body.appendChild(link);
 
       window.requestAnimationFrame(function () {
@@ -96,8 +159,6 @@
     function nextAnno() {
       if (current_anno_index == annos.length - 1) return;
       getCurrentAnno().hide();
-      //downloadTxt(getCurrentAnno().getYOLOannotation());
-
       current_anno_index++;
       redraw();
       getCurrentAnno().show();
@@ -109,7 +170,7 @@
       for (let i = 0; i < this.files.length; i++) {
         let reader = new FileReader();
         reader.onload = (e) => {
-          annos.push(new AnnoObj(e.target.result));
+          annos.push(new AnnoObj(e.target.result, this.files[i].name));
           if (i == 0)
             annos[0].imageObj.onload = function () {
               redraw();
@@ -127,6 +188,16 @@
       fr.readAsText(this.files[0]);
     }
 
+    function exportAnnotations() {
+      for (let i = 0; i < annos.length; i++) {
+        if (annos[i].labels.length > 0) {
+          setTimeout(function () {
+            downloadTxt(annos[i]);
+          }, 500 * i);
+        }
+      }
+    }
+
     function getLabelClassesAsHTML(selectedId = 0) {
       let selectionOptions = "";
       for (let index = 0; index < label_classes.length; index++) {
@@ -140,11 +211,13 @@
     class AnnoObj {
       labels;
       imageObj;
-
-      constructor(img) {
+      imageName;
+      selectedLabel = null;
+      constructor(img, imageName) {
         this.imageObj = new Image();
         this.imageObj.src = img;
         this.labels = [];
+        this.imageName = imageName;
       }
 
       getYOLOannotation() {
@@ -161,28 +234,58 @@
 
       hide() {
         this.deleteSelectionDivs();
+        this.hideLabelResizingSquares();
+      }
+
+      draw() {
+        this.displayImage();
+        this.drawLabels();
+      }
+
+      hideLabelResizingSquares() {
+        this.labels.forEach((element) => {
+          element.setResizerSquareVisibility(false);
+        });
       }
 
       getLabelClicked(pos) {
-        for (let i = 0; i < this.labels.length; i++) {
-            const label = this.labels[i];
-            if(label.isClicked(pos))
-                return label;
+        function compare(a, b) {
+          if (a.h*a.w < b.w*b.h) {
+            return -1;
+          }
+          if (a.h*a.w > a.h*a.w) {
+            return 1;
+          }
+          return 0;
+        }
+
+        let sortedLabels = this.labels.sort(compare);
+        for (let i = 0; i < sortedLabels.length; i++) {
+          let label = sortedLabels[i];
+          if (label.isClicked(pos)) return label;
         }
         return null;
       }
 
       getResizingSquareIfPosInIt(pos) {
         for (let i = 0; i < this.labels.length; i++) {
-          label = this.labels[i];
+          let label = this.labels[i];
           let squarePos = label.getResizingSquareIfPosInIt(pos);
-          if (squarePos.length != 0) return [label, squarePos];
+          if (squarePos != null) return [label, squarePos];
         }
-        return [];
+        return null;
       }
 
       displayImage() {
-        drawImageActualSize(this.imageObj);
+        canvas.width = this.imageObj.naturalWidth / 4.25;
+        canvas.height = 4032 / 4.25;
+        ctx.drawImage(
+          this.imageObj,
+          0,
+          0,
+          this.imageObj.naturalWidth / 4.25,
+          this.imageObj.naturalHeight / 4.25
+        );
       }
 
       drawLabels() {
@@ -205,6 +308,42 @@
           element.addSelectionDiv();
         });
       }
+
+      addLabel(label) {
+        this.labels.push(label);
+        this.setSelectedLabel(label);
+        redraw();
+      }
+
+      setSelectedLabel(label) {
+        if (label == this.selectedLabel) {
+          return;
+        }
+        if (this.selectedLabel != null) {
+          this.selectedLabel.deselect();
+        }
+        this.selectedLabel = label;
+        label.select();
+      }
+
+      clearSelectedLabel() {
+        if (this.selectedLabel != null) {
+          this.selectedLabel.deselect();
+          this.selectedLabel = null;
+        }
+      }
+
+      removeLabel(label) {
+        if (label == null) {
+          return;
+        }
+        if (this.selectedLabel == label) {
+          this.clearSelectedLabel();
+        }
+        this.labels.splice(this.labels.indexOf(label), 1);
+        label.deleteSelectionDiv();
+        redraw();
+      }
     }
 
     class Label {
@@ -217,16 +356,31 @@
       selectionDiv;
       annoParent;
       resizerSquareOffSet = 5;
-      constructor(annoParent, x, y, w, h, name = "0") {
+      isResizerSquaresVisible = false;
+      selection;
+      defaultColor = "rgba(255, 0, 0, 0.8)";
+      selectColor = "rgba(255, 192, 203, 0.8)";
+      color = this.defaultColor;
+      rectLineWidth = "2";
+      constructor(annoParent, x, y, w, h, name = 0) {
         this.annoParent = annoParent;
-        this.x = x;
-        this.y = y;
-        this.w = w;
-        this.h = h;
+        let topLeftData = this.getTopLeftCornerData(x, y, w, h);
+        this.x = topLeftData[0];
+        this.y = topLeftData[1];
+        this.w = topLeftData[2];
+        this.h = topLeftData[3];
+        if (this.isMobile()) {
+          this.resizerSquareOffSet = 10;
+        }
         this.name = name;
         this.id = next_label_id;
         next_label_id++;
         this.addSelectionDiv();
+      }
+
+      setColor(color) {
+        this.color = color;
+        redraw();
       }
 
       getResizerSquares() {
@@ -238,33 +392,66 @@
         ];
       }
 
+      setResizerSquareVisibility(visible) {
+        this.isResizerSquaresVisible = visible;
+        redraw();
+      }
+
+      drawLabelName() {
+        ctx.font = "20px Arial";
+        ctx.shadowColor = "black";
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = "black";
+        ctx.strokeText(label_classes[this.name], this.x, this.y - 5);
+        ctx.fillStyle = "white";
+        ctx.fillText(label_classes[this.name], this.x, this.y - 5);
+      }
+
       drawResizerSquares(color) {
-        this.getResizerSquares().forEach((element) => {
-          ctx.beginPath();
-          ctx.fillStyle = color;
-          ctx.rect(
-            element[0] - this.resizerSquareOffSet,
-            element[1] - this.resizerSquareOffSet,
-            this.resizerSquareOffSet * 2,
-            this.resizerSquareOffSet * 2
-          );
-          ctx.fill();
-        });
+        if (this.isResizerSquaresVisible) {
+          this.getResizerSquares().forEach((element) => {
+            ctx.beginPath();
+            ctx.fillStyle = color;
+            ctx.arc(
+              element[0],
+              element[1],
+              this.resizerSquareOffSet,
+              0,
+              2 * Math.PI
+            );
+            ctx.fill();
+          });
+        }
       }
 
       getResizingSquareIfPosInIt(pos) {
-        for (let i = 0; i < this.getResizerSquares().length; i++) {
-          let element = this.getResizerSquares()[i];
-          if (
-            element[0] - this.resizerSquareOffSet <= pos[0] &&
-            pos[0] <= element[0] + this.resizerSquareOffSet &&
-            element[1] - this.resizerSquareOffSet <= pos[1] &&
-            pos[1] < element[1] + this.resizerSquareOffSet
-          ) {
-            return element;
+        if (this.isResizerSquaresVisible) {
+          for (let i = 0; i < this.getResizerSquares().length; i++) {
+            let element = this.getResizerSquares()[i];
+            if (
+              element[0] - this.resizerSquareOffSet <= pos[0] &&
+              pos[0] <= element[0] + this.resizerSquareOffSet &&
+              element[1] - this.resizerSquareOffSet <= pos[1] &&
+              pos[1] < element[1] + this.resizerSquareOffSet
+            ) {
+              return element;
+            }
           }
         }
-        return [];
+        return null;
+      }
+
+      getTopLeftCornerData(x, y, w, h) {
+        let tempData = [x, y, w, h];
+        if (w < 0) {
+          tempData[0] = x + w;
+          tempData[2] = Math.abs(w);
+        }
+        if (h < 0) {
+          tempData[1] = y + h;
+          tempData[3] = Math.abs(h);
+        }
+        return tempData;
       }
 
       cornerDragging(mouse_pos, corner_pos, lastResizerSquares) {
@@ -310,64 +497,88 @@
         return false;
       }
 
-      draw(color = "red", lineWidth = "3") {
-        ctx.beginPath();
-        ctx.lineWidth = lineWidth;
-        ctx.strokeStyle = color;
-        ctx.rect(this.x, this.y, this.w, this.h);
-        ctx.stroke();
+      draw(color = this.color) {
+        this.drawRectangle(color);
         this.drawResizerSquares("lime");
+        this.drawLabelName();
+      }
+
+      drawRectangle(color = this.color, lineWidth = this.rectLineWidth) {
+        drawRectangle(
+          [this.x, this.y, this.w, this.h],
+          "black",
+          (parseInt(lineWidth) + 1).toString()
+        );
+        drawRectangle([this.x, this.y, this.w, this.h], color, lineWidth);
       }
 
       addSelectionDiv() {
         label_div.insertAdjacentHTML(
           "beforeend",
-          `<div id="div_${this.id}"><span>${this.id}    </span>
-            <select id="${this.id}">
-                ${getLabelClassesAsHTML(this.name)}
-            </select>
-            <input type="button" class="delete" value="X" id="del_${
-              this.id
-            }" tabindex="-1"><br></div>`
+          `<div id="div_${this.id}">
+                <select id="${this.id}">
+                    ${getLabelClassesAsHTML(this.name)}
+                </select>
+                <input type="button" class="delete" value="X" id="del_${
+                  this.id
+                }" tabindex="-1"><br></div>`
         );
         let delete_btn = document.getElementById(`del_${this.id}`);
+        this.selection = document.getElementById(this.id);
         this.selectionDiv = document.getElementById(`div_${this.id}`);
-        let selectionHTML = document.getElementById(this.id);
-        selectionHTML.focus();
+        this.selectionFocus();
         delete_btn.addEventListener("click", (e) => {
-          getCurrentAnno().labels.splice(
-            getCurrentAnno().labels.indexOf(this),
-            1
-          );
-          this.selectionDiv.remove();
-          redraw();
+          this.remove();
         });
-
-        selectionHTML.addEventListener("focus", (e) => {
-          this.draw("pink", "5");
+        this.selection.addEventListener("focus", (e) => {
+          getCurrentAnno().setSelectedLabel(this);
         });
-        selectionHTML.addEventListener("blur", (e) => {
-          redraw();
-        });
-        selectionHTML.addEventListener("change", (e) => {
+        this.selection.addEventListener("blur", redraw);
+        this.selection.addEventListener("change", (e) => {
           this.name = e.target.value;
+          redraw();
         });
+      }
+
+      remove() {
+        this.annoParent.removeLabel(this);
       }
 
       deleteSelectionDiv() {
         this.selectionDiv.remove();
       }
 
+      select(setSelectionFocus = true) {
+        this.setResizerSquareVisibility(true);
+        this.setColor(this.selectColor);
+        if (setSelectionFocus) {
+          this.selectionFocus();
+        }
+        redraw();
+      }
+
+      deselect() {
+        this.setResizerSquareVisibility(false);
+        this.setColor(this.defaultColor);
+        redraw();
+      }
+
       selectionFocus() {
-        return document.getElementById(this.id).focus();
+        this.selection.focus({ preventScroll: true });
+      }
+
+      isMobile() {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+          navigator.userAgent
+        );
       }
 
       getYOLOannotation() {
         let parentImage = this.annoParent.imageObj;
-        let center_xn = ((this.x + this.w / 2) / parentImage.width) * 5;
-        let center_yn = ((this.y + this.h / 2) / parentImage.height) * 5;
-        let wn = (Math.abs(this.w) / parentImage.width) * 5;
-        let hn = (Math.abs(this.h) / parentImage.height) * 5;
+        let center_xn = ((this.x + this.w / 2) / parentImage.width) * 4.25;
+        let center_yn = ((this.y + this.h / 2) / parentImage.height) * 4.25;
+        let wn = (this.w / parentImage.width) * 4.25;
+        let hn = (this.h / parentImage.height) * 4.25;
         return `${this.name} ${center_xn.toFixed(6)} ${center_yn.toFixed(
           6
         )} ${wn.toFixed(6)} ${hn.toFixed(6)}`;
@@ -379,15 +590,9 @@
     let isMouseDown = false;
     let currentPos = [];
 
-    function drawImageActualSize(img) {
-      canvas.width = img.naturalWidth / 5;
-      canvas.height = 4032 / 5;
-      ctx.drawImage(img, 0, 0, img.naturalWidth / 5, img.naturalHeight / 5);
-    }
-
-    function drawRectangle(pos, color) {
+    function drawRectangle(pos, color = "black", lineWidth = "2") {
       ctx.beginPath();
-      ctx.lineWidth = "3";
+      ctx.lineWidth = lineWidth;
       ctx.strokeStyle = color;
       ctx.rect(pos[0], pos[1], pos[2], pos[3]);
       ctx.stroke();
@@ -399,93 +604,92 @@
 
     function redraw() {
       clearCanvas();
-      getCurrentAnno().displayImage();
-      getCurrentAnno().drawLabels();
+      getCurrentAnno().draw();
     }
+
     let isResizingLabel = false;
     let resizingLabelAndCorner;
     let resizingOldSquares;
     let isDraggingLabel = false;
     let draggingOldLabel;
     let draggingOffset;
+    let isDrawingNew = false;
 
     canvas.addEventListener("mousedown", (e) => {
+      e.preventDefault();
       isMouseDown = true;
       startPos = [e.offsetX, e.offsetY];
-    });
+      currentPos = startPos;
 
+      let resizingLabelAndSquarePos =
+        getCurrentAnno().getResizingSquareIfPosInIt(startPos);
+      let clickedLabel = getCurrentAnno().getLabelClicked(startPos);
+      if (clickedLabel != null) {
+        isDraggingLabel = true;
+        draggingOldLabel = clickedLabel;
+        draggingOffset = [x - clickedLabel.x, y - clickedLabel.y];
+        getCurrentAnno().setSelectedLabel(draggingOldLabel);
+      } else if (resizingLabelAndSquarePos != null) {
+        isResizingLabel = true;
+        resizingLabelAndCorner = resizingLabelAndSquarePos;
+        getCurrentAnno().setSelectedLabel(resizingLabelAndCorner[0]);
+        resizingOldSquares = resizingLabelAndCorner[0].getResizerSquares();
+      } else {
+        isDrawingNew = true;
+        getCurrentAnno().clearSelectedLabel();
+      }
+    });
     canvas.addEventListener("mousemove", (e) => {
       x = e.offsetX;
       y = e.offsetY;
       if (isMouseDown) {
-        let resizingLabelAndSquarePos =
-          getCurrentAnno().getResizingSquareIfPosInIt(startPos);
-        let draggingLabel = getCurrentAnno().getLabelClicked([x,y]);
-        if (draggingLabel != null && !isDraggingLabel && !isResizingLabel){
-            draggingOldLabel= draggingLabel;
-            draggingOffset = [x-draggingLabel.x, y-draggingLabel.y];
-            isDraggingLabel = true;
-        }
-        else if(isDraggingLabel){
-            draggingOldLabel.x = x-draggingOffset[0];
-            draggingOldLabel.y = y-draggingOffset[1];
-            redraw();
-        }
-        else if (isResizingLabel) {
+        if (isDraggingLabel) {
+          draggingOldLabel.x = x - draggingOffset[0];
+          draggingOldLabel.y = y - draggingOffset[1];
           redraw();
+        } else if (isResizingLabel) {
           resizingLabelAndCorner[0].cornerDragging(
             [x, y],
             resizingLabelAndCorner[1],
             resizingOldSquares
           );
-        } else if (resizingLabelAndSquarePos.length != 0) {
-          isResizingLabel = true;
-          resizingLabelAndCorner = resizingLabelAndSquarePos;
-          resizingOldSquares = resizingLabelAndCorner[0].getResizerSquares();
-        } 
-        else if (currentPos[0] != x || currentPos[1] != y) {
+          redraw();
+        } else if (isDrawingNew) {
           redraw();
           drawRectangle(
             [startPos[0], startPos[1], x - startPos[0], y - startPos[1]],
-            "blue"
+            "rgba(0, 0, 255, 0.6)"
           );
         }
       }
       currentPos = [x, y];
     });
-
     canvas.addEventListener("mouseup", (e) => {
       isMouseDown = false;
-      x = currentPos[0];
-      y = currentPos[1];
-      endPos = [x, y];
+      endPos = currentPos;
 
-      if (isResizingLabel) {
-        isResizingLabel = false;
-        resizingLabelAndCorner[0].selectionFocus();
-        resizingLabelAndCorner = [];
-        resizingOldSquares = [];
-        return;
-      }
-      if(isDraggingLabel){
+      if (isDraggingLabel) {
         isDraggingLabel = false;
         draggingOldLabel = null;
         draggingOffset = 0;
-        return;
+      } else if (isResizingLabel) {
+        isResizingLabel = false;
+        resizingLabelAndCorner = [];
+        resizingOldSquares = [];
+      } else if (isDrawingNew) {
+        isDrawingNew = false;
+        if (startPos[0] != endPos[0] && startPos[1] != endPos[1]) {
+          let label = new Label(
+            getCurrentAnno(),
+            startPos[0],
+            startPos[1],
+            endPos[0] - startPos[0],
+            endPos[1] - startPos[1]
+          );
+          getCurrentAnno().addLabel(label);
+        }
       }
-      
-      if (startPos[0] == endPos[0] && startPos[1] == endPos[1]) return;
-      label = new Label(
-        getCurrentAnno(),
-        startPos[0],
-        startPos[1],
-        endPos[0] - startPos[0],
-        endPos[1] - startPos[1]
-      );
-      getCurrentAnno().labels.push(label);
-      redraw();
     });
-
     canvas.addEventListener("touchstart", function (e) {
       e.preventDefault();
       var touch = e.touches[0];
@@ -495,7 +699,6 @@
       });
       canvas.dispatchEvent(mouseEvent);
     });
-
     canvas.addEventListener("touchmove", (e) => {
       e.preventDefault();
       var touch = e.touches[0];
@@ -505,13 +708,11 @@
       });
       canvas.dispatchEvent(mouseEvent);
     });
-
     canvas.addEventListener("touchend", (e) => {
       e.preventDefault();
       var mouseEvent = new MouseEvent("mouseup", {});
       canvas.dispatchEvent(mouseEvent);
     });
-
     document.body.addEventListener("touchstart", function (e) {
       if (e.target == canvas) e.preventDefault();
     });
@@ -520,6 +721,17 @@
     });
     document.body.addEventListener("touchmove", function (e) {
       if (e.target == canvas) e.preventDefault();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.which == 39) {
+        e.preventDefault();
+        nextAnno();
+      } else if (e.which == 37) {
+        e.preventDefault();
+        prevAnno();
+      } else if (e.which == 46) {
+        getCurrentAnno().removeLabel(getCurrentAnno().selectedLabel);
+      }
     });
   </script>
 </html>
