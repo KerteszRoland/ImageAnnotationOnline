@@ -1,0 +1,43 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: coral;
+  color: white;
+}
+canvas {
+  background-color: #1a1a1a;
+  margin: 0;
+  padding: 0;
+}
+.delete {
+  background-color: red;
+}
+.flex-container-h {
+  display: flex;
+  justify-content: space-between;
+  flex-direction: row;
+}
+.flex-container-v {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+#label_names {
+  width: 350px;
+}
+.center {
+  text-align: center;
+  margin: auto;
+}
+.mt-25 {
+  margin-top: 25px;
+}
+.mt-50 {
+  margin-top: 50px;
+}
+.btn-control {
+  padding: 20px 100px;
+  margin: 0;
+}
